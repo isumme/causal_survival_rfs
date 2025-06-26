@@ -3,17 +3,264 @@ title: "Causal Survival Random Forests"
 output: html_notebook
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+https://grf-labs.github.io/grf/reference/causal_survival_forest.html
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
 
+# Installing Libraries
 ```{r}
+
+install.packages('grf')
+library(grf)
+library(ggplot2)
 
 ```
 
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+# Importing Data, Cleaning, and Setting Vars
 
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+```{r}
+# Import data
+data <- read.csv("rhc_imputed.csv")
 
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+# Adjusting variables
+
+# Recalculate survival time
+
+data$survtime_new <- ifelse(!is.na(data$dthdte),  # Check if they have a date of death
+                            data$dthdte - data$sadmdte, # If true (they died), get time from admission to death
+                            data$lstctdte - data$sadmdte) # If false (didn't), get time from admission to the last known contact date
+
+# Recalculate event indicator -- if true/dead, assign 1 and if false/censored, assign 0
+
+data$death_new <- ifelse(!is.na(data$dthdte), 1, 0)  # Check if they have a non-missing date of death
+
+# Clean data so no NAs
+data_clean <- data[!is.na(data$survtime_new) & !is.na(data$death_new), ]
+
+# Treatment indicator W (RHC 1 or no RHC 0)
+W <- as.numeric(data_clean$swang1)
+
+# Event time Y (survival time) and event type D (death)
+Y <- data_clean$survtime_new
+D <- data_clean$death_new
+
+# Non-covariates
+
+exclude <- c("ptid", "swang1", "dthdte", "dschdte", "lstctdte", "sadmdte",
+              "survtime", "death", "survtime_new", "death_new")
+
+# Create covariate subset
+
+X_temp <- data_clean[, !(names(data_clean) %in% exclude)]
+
+# Make sure important covariates are factored
+
+X_temp$sex <- as.factor(X_temp$sex)
+X_temp$race <- as.factor(X_temp$race)
+X_temp$income <- as.factor(X_temp$income)
+X_temp$cat1 <- as.factor(X_temp$cat1)
+X_temp$ca <- as.factor(X_temp$ca)
+
+# Convert all variables to dummy variables for the model
+X_temp_clean <- X_temp[complete.cases(X_temp), ]
+
+X <- model.matrix(~ . - 1, data = X_temp) # -1 for no intercept term in CSRF (looked this up but we should verify)
+
+Y <- Y[complete.cases(X_temp)]
+D <- D[complete.cases(X_temp)]
+W <- W[complete.cases(X_temp)]
+
+```
+
+# Creating Model
+```{r}
+
+model <- causal_survival_forest(
+  X = X,
+  Y = Y,
+  D = D,
+  W = W,
+  horizon = 30,     # For 30 days, we should change to 30, 60, 90, etc.
+  num.trees = 2000,
+  seed = 2025
+)
+
+```
+
+# CATE
+```{r}
+# Get the estimated effect of RHC on 30-day survival for each individual
+
+csf_preds <- predict(model)
+cate_estimates <- csf_preds$predictions
+summary(csf_preds$predictions)
+
+```
+
+# Distribution of Effects
+```{r}
+
+# Distribution of effects
+
+hist(cate_estimates, breaks = 50,
+     main = "Estimated Treatment Effects 'CATEs'",
+     xlab = "Effect of RHC on 30-Day Survival Probability")
+
+```
+
+```{r}
+
+# Average Treatment Effect
+
+ate <- mean(csf_preds$predictions)
+ate
+
+```
+
+```{r}
+
+# Ex. HTE by Severity (APS1)
+
+plot(data_clean$aps1[complete.cases(X_temp)], cate_estimates,
+     xlab = "APS1 Score (Severity)",
+     ylab = "Estimated Treatment Effect",
+     main = "HTE by Severity (APS1)")
+abline(h = 0, col = "red")
+
+```
+
+```{r}
+
+# Ex. HTE by Age
+
+plot(data_clean$age[complete.cases(X_temp)], cate_estimates,
+     xlab = "Age",
+     ylab = "Estimated Treatment Effect",
+     main = "HTE by Age")
+abline(h = 0, col = "red")
+
+```
+
+```{r}
+
+# Key Drivers of HTE
+
+vi <- variable_importance(model)
+top_vars <- data.frame(
+  Variable = colnames(X),
+  Importance = vi
+)
+top_vars <- top_vars[order(-top_vars$Importance), ]
+head(top_vars, 10)
+
+```
+
+```{r}
+
+# Top 10 vars
+top10 <- head(top_vars, 10)
+
+# Order the vars
+top10$Variable <- factor(top10$Variable, levels = rev(top10$Variable))
+
+# Plot
+ggplot(top10, aes(x = Variable, y = Importance)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Top 10 Important Variables",
+       x = "Variable",
+       y = "Importance") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16),
+    axis.title = element_text(size = 18),
+    axis.text = element_text(size = 12)
+  )
+
+```
+
+```{r}
+
+install.packages("survival")
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("survcomp")
+library(survival)
+library(survcomp)
+
+```
+
+```{r}
+
+# Surv object that we get from survival time and event indicator
+
+surv_obj <- Surv(time = Y, event = D)
+
+```
+
+```{r}
+
+# C-index calculations, 0.5 or more we need
+
+c_index <- concordance.index(
+  x = cate_estimates,
+  surv.time = Y,
+  surv.event = D,
+  method = "noether"
+)
+
+print(c_index$c.index)
+
+```
+
+```{r}
+
+quantile(cate_estimates, probs = c(0.01, 0.25, 0.5, 0.75, 0.99))
+
+data_clean$CATE <- cate_estimates
+data_clean$Effect_Group <- cut(data_clean$CATE,
+                                breaks = c(-Inf, -0.05, 0.05, Inf),
+                                labels = c("Harmed", "Neutral", "Benefitted"))
+
+table(data_clean$Effect_Group)
+
+```
+
+```{r}
+
+# Get predicted treatment effects (tau-hat) for each individual
+tau_hat <- predict(model)$predictions
+
+# Run RATE with tau_hat as the ranking priority
+rate_result <- rank_average_treatment_effect(model, priorities = tau_hat)
+
+# Plot
+plot(rate_result)
+
+```
+
+# SGATE
+
+```{r}
+
+# Get predicted treatment effects
+tau_hat <- predict(model)$predictions
+
+# Split into quantile groups (e.g., quintiles)
+groups <- cut(tau_hat, breaks = quantile(tau_hat, probs = seq(0, 1, length.out = 6)),
+              include.lowest = TRUE, labels = FALSE)
+
+# Estimate ATE within each group
+library(dplyr)
+sgate_df <- data.frame(tau_hat = tau_hat, group = groups)
+
+sgate_df |> 
+  group_by(group) |> 
+  summarise(mean_tau = mean(tau_hat)) |> 
+  ggplot(aes(x = factor(group), y = mean_tau)) +
+  geom_col(fill = "steelblue") +
+  labs(title = "Manual S-GATE (Quintiles)", x = "Quantile Group", y = "Average Treatment Effect") +
+  theme_minimal()
+
+
+```
 
