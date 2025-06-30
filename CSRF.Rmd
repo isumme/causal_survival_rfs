@@ -1,0 +1,248 @@
+---
+title: "Causal Survival Random Forests"
+author: "Quinn Hungerford and Isabella Summe"
+date: "2025-06-30"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Loading in libraries
+
+```{r}
+library(grf)
+library(ggplot2)
+library(survival)
+library(survcomp)
+library(pec)
+```
+
+# Importing data, cleaning, and setting new vars
+
+```{r}
+# Import data
+data <- read.csv("rhc_imputed.csv")
+
+# Recalculate survival time
+data$survtime_new <- ifelse(!is.na(data$dthdte),  # Check if they have a date of death
+                            data$dthdte - data$sadmdte, # If true (they died), get time from admission to death
+                            data$lstctdte - data$sadmdte) # If false (didn't), get time from admission to the last known contact date
+
+# Recalculate event indicator -- if true/dead, assign 1 and if false/censored, assign 0
+data$death_new <- ifelse(!is.na(data$dthdte), 1, 0)  # Check if they have a non-missing date of death
+
+# Clean data so no NAs
+data_clean <- data[!is.na(data$survtime_new) & !is.na(data$death_new), ]
+
+# Treatment indicator W (RHC 1 or no RHC 0)
+W <- as.numeric(data_clean$swang1)
+
+# Event time Y (survival time) and event type D (death)
+Y <- data_clean$survtime_new
+D <- data_clean$death_new
+
+# Non-covariates
+
+exclude <- c("ptid", "swang1", "dthdte", "dschdte", "lstctdte", "sadmdte",
+              "survtime", "death", "survtime_new", "death_new")
+
+# Create covariate subset
+X_temp <- data_clean[, !(names(data_clean) %in% exclude)]
+
+# Make sure important covariates are factored
+X_temp$sex <- as.factor(X_temp$sex)
+X_temp$race <- as.factor(X_temp$race)
+X_temp$income <- as.factor(X_temp$income)
+X_temp$cat1 <- as.factor(X_temp$cat1)
+X_temp$ca <- as.factor(X_temp$ca)
+
+# Convert all variables to dummy variables for the model
+X_temp_clean <- X_temp[complete.cases(X_temp), ]
+
+X <- model.matrix(~ . - 1, data = X_temp) # -1 for no intercept term in CSRF
+
+# Keep only the rows where our covariate matrix has no missing values
+Y <- Y[complete.cases(X_temp)]
+D <- D[complete.cases(X_temp)]
+W <- W[complete.cases(X_temp)]
+```
+
+# Creating the CSRF model
+
+```{r}
+model <- causal_survival_forest(
+  X = X,
+  Y = Y,
+  D = D,
+  W = W,
+  horizon = 180,
+  num.trees = 2000,
+  seed = 2025
+)
+```
+
+# Evaluating model performance with a 5-Fold cross-validation for C-index
+
+```{r}
+set.seed(2025)
+folds <- sample(1:5, size = length(Y), replace = TRUE)
+c_indices <- numeric(5)
+
+for (i in 1:5) {
+  train_idx <- which(folds != i)
+  test_idx  <- which(folds == i)
+
+  model_cv <- causal_survival_forest(
+    X = X[train_idx, ],
+    Y = Y[train_idx],
+    D = D[train_idx],
+    W = W[train_idx],
+    horizon = 180,
+    num.trees = 2000,
+    seed = 2025
+  )
+
+  preds <- predict(model_cv, newdata = X[test_idx, ], failure.time = 180)$predictions
+  surv_obj <- Surv(Y[test_idx], D[test_idx])
+  c_idx <- concordance.index(x = preds, surv.time = surv_obj[,1], surv.event = surv_obj[,2])$c.index
+  c_indices[i] <- c_idx
+}
+mean_c_index <- mean(c_indices)
+mean_c_index
+
+# Old c-index calculation without cross-validation
+#c_index <- concordance.index(
+#  x = cate_estimates,
+#  surv.time = Y,
+#  surv.event = D,
+#  method = "noether"
+#)
+#print(c_index$c.index)
+```
+
+# CATEs (Individual-level treatment effect estimates) for each observation in the dataset
+
+```{r}
+# Get the estimated effect of RHC on 30-day survival for each individual
+csf_preds <- predict(model)
+cate_estimates <- csf_preds$predictions
+summary(csf_preds$predictions)
+```
+For some individuals, RHC is estimated to reduce survival time by ~9 days. 25% of patients have an estimated treatment effect worse than -3 days (RHC harms them). For the median patient, RHC reduces 30-day survival by ~1.7 days. On average, RHC reduces 30-day survival by ~1.9 days. 75% of patients have treatment effects worse than -0.56 days. A small subset of patients actually benefit, gaining ~4 days from RHC.
+
+# Distribution of effects
+
+```{r}
+# Distribution of effects
+hist(cate_estimates, breaks = 50,
+     main = "Estimated Treatment Effects 'CATEs'",
+     xlab = "Effect of RHC on 30-Day Survival Probability")
+```
+
+The estimates suggest that RHC is harmful on average for 30-day survival, with most patients experiencing a decrease in survival ranging from ~1 to ~6 days. However, a minority of patients show positive treatment effects, suggesting treatment effect heterogeneity since some patients may benefit from RHC, depending on their characteristics.
+
+```{r}
+# Calculates quantiles of the CATE estimates
+quantile(cate_estimates, probs = c(0.01, 0.25, 0.5, 0.75, 0.99))
+
+# Add CATE estimates to the data frame so each patient's effect is stored
+data_clean$CATE <- cate_estimates
+
+# Groups patients into categories based on their estimated treatment effect (CATE)
+data_clean$Effect_Group <- cut(data_clean$CATE,
+                                breaks = c(-Inf, -0.05, 0.05, Inf),
+                                labels = c("Harmed", "Neutral",
+                                           "Benefitted"))
+# Harmed if RHC reduces survival by more than 0.05 days
+# Neutral if the effect is between +-0.05
+# Benefitted if RHC increases survival by more than 0.05 days
+
+# Count how many patients are into each effect group
+table(data_clean$Effect_Group)
+```
+The model predicts that most patients (about 83%) are harmed by RHC in terms of 30-day survival. A small subset (about 13%) may benefit, and only around 2% appear unaffected. This supports the presence of treatment effect heterogeneity + justifies us investigating which subgroups these benefitted individuals belong to.
+
+# ATE (for reference)
+
+```{r}
+# Average Treatment Effect
+ate <- mean(csf_preds$predictions)
+ate
+```
+
+# Identifying variables that drive the heterogeneity in how RHC affects survival (aka most contribute to variation in CATEs)
+
+```{r}
+# Key Drivers of HTE
+vi <- variable_importance(model)
+top_vars <- data.frame(
+  Variable = colnames(X),
+  Importance = vi
+)
+top_vars <- top_vars[order(-top_vars$Importance), ]
+head(top_vars, 40)
+```
+
+# Graphic for the top 10 covariates
+
+```{r}
+# Top 10 vars
+top10 <- head(top_vars, 10)
+
+# Order the vars
+top10$Variable <- factor(top10$Variable, levels = rev(top10$Variable))
+
+# Plot
+ggplot(top10, aes(x = Variable, y = Importance)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Top 10 Important Variables",
+       x = "Variable",
+       y = "Importance") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16),
+    axis.title = element_text(size = 18),
+    axis.text = element_text(size = 12)
+  )
+```
+
+
+# Bella's stuff that I do not understand lol
+
+```{r}
+# Get predicted treatment effects (tau-hat) for each individual
+tau_hat <- predict(model)$predictions
+
+# Run RATE with tau_hat as the ranking priority
+rate_result <- rank_average_treatment_effect(model, priorities = tau_hat)
+
+# Plot
+plot(rate_result)
+```
+
+# SGATE
+
+```{r}
+# Get predicted treatment effects
+tau_hat <- predict(model)$predictions
+
+# Split into quantile groups (e.g., quintiles)
+groups <- cut(tau_hat, breaks = quantile(tau_hat, probs = seq(0, 1, length.out = 6)),
+              include.lowest = TRUE, labels = FALSE)
+
+# Estimate ATE within each group
+library(dplyr)
+sgate_df <- data.frame(tau_hat = tau_hat, group = groups)
+
+sgate_df |> 
+  group_by(group) |> 
+  summarise(mean_tau = mean(tau_hat)) |> 
+  ggplot(aes(x = factor(group), y = mean_tau)) +
+  geom_col(fill = "steelblue") +
+  labs(title = "Manual S-GATE (Quintiles)", x = "Quantile Group", y = "Average Treatment Effect") +
+  theme_minimal()
+```
+
+
