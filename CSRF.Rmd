@@ -25,23 +25,15 @@ library(pec)
 # Import data
 data <- read.csv("rhc_imputed.csv")
 
-# Recalculate survival time
-data$survtime_new <- ifelse(!is.na(data$dthdte),  # Check if they have a date of death
-                            data$dthdte - data$sadmdte, # If true (they died), get time from admission to death
-                            data$lstctdte - data$sadmdte) # If false (didn't), get time from admission to the last known contact date
-
-# Recalculate event indicator -- if true/dead, assign 1 and if false/censored, assign 0
-data$death_new <- ifelse(!is.na(data$dthdte), 1, 0)  # Check if they have a non-missing date of death
-
 # Clean data so no NAs
-data_clean <- data[!is.na(data$survtime_new) & !is.na(data$death_new), ]
+data_clean <- data[!is.na(data$SurvivalTime) & !is.na(data$censor), ]
 
 # Treatment indicator W (RHC 1 or no RHC 0)
 W <- as.numeric(data_clean$swang1)
 
 # Event time Y (survival time) and event type D (death)
-Y <- data_clean$survtime_new
-D <- data_clean$death_new
+Y <- data_clean$SurvivalTime
+D <- data_clean$censor
 
 # Non-covariates
 
@@ -63,10 +55,6 @@ X_temp_clean <- X_temp[complete.cases(X_temp), ]
 
 X <- model.matrix(~ . - 1, data = X_temp) # -1 for no intercept term in CSRF
 
-# Keep only the rows where our covariate matrix has no missing values
-Y <- Y[complete.cases(X_temp)]
-D <- D[complete.cases(X_temp)]
-W <- W[complete.cases(X_temp)]
 ```
 
 # Creating the CSRF model
@@ -77,8 +65,8 @@ model <- causal_survival_forest(
   Y = Y,
   D = D,
   W = W,
-  horizon = 180,
-  num.trees = 2000,
+  horizon = 30,
+  num.trees = 5000,
   seed = 2025
 )
 ```
@@ -86,41 +74,61 @@ model <- causal_survival_forest(
 # Evaluating model performance with a 5-Fold cross-validation for C-index
 
 ```{r}
+library(grf)
+library(survival)
+
 set.seed(2025)
+
+# Create 5 random folds
 folds <- sample(1:5, size = length(Y), replace = TRUE)
 c_indices <- numeric(5)
 
 for (i in 1:5) {
+  # Split into training and testing indices
   train_idx <- which(folds != i)
   test_idx  <- which(folds == i)
 
+  # Fit Causal Survival Forest on training data
   model_cv <- causal_survival_forest(
     X = X[train_idx, ],
     Y = Y[train_idx],
     D = D[train_idx],
     W = W[train_idx],
-    horizon = 180,
-    num.trees = 2000,
+    horizon = 30,
+    num.trees = 5000,
     seed = 2025
   )
 
-  preds <- predict(model_cv, newdata = X[test_idx, ], failure.time = 180)$predictions
+  # Predict survival probabilities for test set at 180 days
+  preds <- predict(model_cv, newdata = X[test_idx, ], failure.time = 180)
+
+  # Convert to risk scores = probability of death = 1 - survival probability
+  risk_scores <- 1 - preds$predictions
+
+  # Create survival object for test set
   surv_obj <- Surv(Y[test_idx], D[test_idx])
-  c_idx <- concordance.index(x = preds, surv.time = surv_obj[,1], surv.event = surv_obj[,2])$c.index
-  c_indices[i] <- c_idx
+
+  # Compute concordance index (C-index)
+  concordance_result <- concordance(surv_obj ~ risk_scores)
+  c_indices[i] <- concordance_result$concordance
 }
+
+# Average C-index across 5 folds
 mean_c_index <- mean(c_indices)
 mean_c_index
 
+
 # Old c-index calculation without cross-validation
 #c_index <- concordance.index(
-#  x = cate_estimates,
+#  x = cate_estimates,˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛
 #  surv.time = Y,
 #  surv.event = D,
 #  method = "noether"
 #)
 #print(c_index$c.index)
 ```
+
+C-index = 0.6 means this model correctly ranks survival in 60% of patient pairs.
 
 # CATEs (Individual-level treatment effect estimates) for each observation in the dataset
 
