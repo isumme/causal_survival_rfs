@@ -263,4 +263,48 @@ sgate_df |>
 
 
 ```
+```{r}
+install.packages("survival")
+install.packages("survminer")
+library(survival)
+library(survminer)
+```
+
+```{r}
+# True treatment groups (not adjusted)
+fit <- survfit(Surv(survtime, death) ~ rhc, data = df)
+
+ggsurvplot(fit, data = df,
+           conf.int = TRUE,
+           pval = TRUE,
+           legend.labs = c("No RHC", "RHC"),
+           title = "Kaplan-Meier Curves by RHC Status")
+```
+
+
+```{r}
+install.packages("survRM2")
+library(survRM2)
+```
+
+
+```{r}
+
+library(readr)
+rhc_data <- read_csv("rhc_imputed.csv")
+
+
+library(survRM2)
+
+rmst_result <- rmst2(
+  time   = rhc_data$survtime,
+  status = rhc_data$death,
+  arm    = rhc_data$swang1,  # 1 = RHC, 0 = No RHC
+  tau    = 180               # Choose the horizon, e.g. 180 days
+)
+
+print(rmst_result)
+
+
+```
 
