@@ -26,36 +26,28 @@ library(pec)
 # Import data
 data <- read.csv("rhc_imputed.csv")
 
-# Clean data so no NAs
+# Keep only rows with complete outcome information
 data_clean <- data[!is.na(data$SurvivalTime) & !is.na(data$censor), ]
 
-# Treatment indicator W (RHC 1 or no RHC 0)
+# Define treatment and survival outcome
 W <- as.numeric(data_clean$swang1)
-
-# Event time Y (survival time) and event type D (death)
 Y <- data_clean$SurvivalTime
 D <- data_clean$censor
 
-# Non-covariates
-
+# Define covariates
 exclude <- c("ptid", "swang1", "dthdte", "dschdte", "lstctdte", "sadmdte",
-              "survtime", "death", "survtime_new", "death_new")
-
-# Create covariate subset
+             "survtime", "death", "survtime_new", "death_new")
 X_temp <- data_clean[, !(names(data_clean) %in% exclude)]
 
-# Make sure important covariates are factored
+# Factor key categorical variables
 X_temp$sex <- as.factor(X_temp$sex)
 X_temp$race <- as.factor(X_temp$race)
 X_temp$income <- as.factor(X_temp$income)
 X_temp$cat1 <- as.factor(X_temp$cat1)
 X_temp$ca <- as.factor(X_temp$ca)
 
-# Convert all variables to dummy variables for the model
-X_temp_clean <- X_temp[complete.cases(X_temp), ]
-
-X <- model.matrix(~ . - 1, data = X_temp) # -1 for no intercept term in CSRF
-
+# Convert to dummy variables
+X <- model.matrix(~ . - 1, data = X_temp)
 ```
 
 # Creating the CSRF model
