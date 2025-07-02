@@ -50,6 +50,21 @@ X_temp$ca <- as.factor(X_temp$ca)
 X <- model.matrix(~ . - 1, data = X_temp)
 ```
 
+
+# Checking for Truncation Time
+
+```{r}
+
+hist(Y[D == 1], col = adjustcolor("grey"), main = "Event vs. Censored", xlab = "Time", xlim = c(0, 200))
+hist(Y[D == 0], col = adjustcolor("red", 0.5), add = TRUE)
+abline(v = h, lty = 2)
+legend("topleft", legend = c("Event", "Censored"), 
+       fill = c("gray", rgb(1, 0, 0, 0.5)), border = NA)
+
+```
+
+
+
 # Creating the CSRF model
 
 ```{r}
@@ -226,6 +241,9 @@ lwd = 4)
 abline(v = 720, lty = 2)
 
 ```
+
+# dementhx, sex1, incomeUnder..11k
+# t3d30, wtkilo1, neuro, seps, income.11..25k, income.25..50k
 
 ```{r}
 
