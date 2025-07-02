@@ -353,6 +353,133 @@ model <- causal_survival_forest(
 )
 ```
 
+
+# Cross-Validation for Survival Probability Model
+```{r}
+library(survival)
+
+set.seed(2025)
+folds <- sample(1:5, size = length(Y), replace = TRUE)
+
+# Horizon values
+horizons <- c(30, 60, 90, 120, 150, 180)
+c_index_sp <- numeric(length(horizons))
+
+for (j in seq_along(horizons)) {
+  h <- horizons[j]
+  c_indices <- numeric(5)
+  
+  for (i in 1:5) {
+    train_idx <- which(folds != i)
+    test_idx  <- which(folds == i)
+
+    # Train model
+    model_cv <- causal_survival_forest(
+      X = X[train_idx, ],
+      Y = Y[train_idx],
+      D = D[train_idx],
+      W = W[train_idx],
+      horizon = h,
+      target = "survival.probability",
+      num.trees = 1000,
+      seed = 2025
+    )
+
+    # Predict survival probability and convert to risk scores
+    preds <- predict(model_cv, newdata = X[test_idx, ], failure.time = h)
+    risk_scores <- 1 - preds$predictions
+    surv_obj <- Surv(Y[test_idx], D[test_idx])
+
+    # Calculate C-index
+    concordance_result <- concordance(surv_obj ~ risk_scores)
+    c_indices[i] <- concordance_result$concordance
+  }
+
+  c_index_sp[j] <- mean(c_indices)
+}
+
+# View results
+c_index_sp_table <- tibble(
+  Horizon = horizons,
+  Target = "Survival Probability",
+  Mean_C_Index = round(c_index_sp, 4)
+)
+
+print(c_index_sp_table)
+
+```
+
+
+# Cross-Validation for RMST
+```{r}
+set.seed(2025)
+folds <- sample(1:5, size = length(Y), replace = TRUE)
+
+c_index_rmst <- numeric(length(horizons))
+
+for (j in seq_along(horizons)) {
+  h <- horizons[j]
+  c_indices <- numeric(5)
+  
+  for (i in 1:5) {
+    train_idx <- which(folds != i)
+    test_idx  <- which(folds == i)
+
+    # Train model
+    model_cv <- causal_survival_forest(
+      X = X[train_idx, ],
+      Y = Y[train_idx],
+      D = D[train_idx],
+      W = W[train_idx],
+      horizon = h,
+      target = "RMST",
+      num.trees = 1000,
+      seed = 2025
+    )
+
+    # Predict RMST and convert to risk scores (negative = worse outcome)
+    preds <- predict(model_cv, newdata = X[test_idx, ], failure.time = h)
+    risk_scores <- -preds$predictions  # Higher RMST = better, so reverse sign
+    surv_obj <- Surv(Y[test_idx], D[test_idx])
+
+    # Calculate C-index
+    concordance_result <- concordance(surv_obj ~ risk_scores)
+    c_indices[i] <- concordance_result$concordance
+  }
+
+  c_index_rmst[j] <- mean(c_indices)
+}
+
+# View results
+c_index_rmst_table <- tibble(
+  Horizon = horizons,
+  Target = "RMST",
+  Mean_C_Index = round(c_index_rmst, 4)
+)
+
+print(c_index_rmst_table)
+
+```
+
+
+```{r}
+# View results
+c_index_rmst_table <- tibble(
+  Horizon = horizons,
+  Target = "RMST",
+  Mean_C_Index = round(c_index_rmst, 4)
+)
+
+print(c_index_rmst_table)
+```
+
+
+
+# PCA and Clustering
+
+
+
+
 # Evaluating model performance with a 5-Fold cross-validation for C-index
 
 ```{r}
@@ -410,6 +537,9 @@ mean_c_index
 ```
 
 C-index = 0.6 means this model correctly ranks survival in 60% of patient pairs.
+
+
+
 
 # CATEs (Individual-level treatment effect estimates) for each observation in the dataset
 
