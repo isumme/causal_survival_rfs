@@ -63,9 +63,147 @@ legend("topleft", legend = c("Event", "Censored"),
 
 ```
 
+# CSF Models: 30 days, 60 days, 90 days, 120 days, 150 days, 180 days
+
+```{r}
+csf_30 <- causal_survival_forest(
+  X = X,
+  Y = Y,
+  D = D,
+  W = W,
+  horizon = 30,
+  num.trees = 1000,
+  target = "survival.probability",
+  seed = 2025
+)
+
+csf_60 <- causal_survival_forest(
+  X = X,
+  Y = Y,
+  D = D,
+  W = W,
+  horizon = 60,
+  num.trees = 1000,
+  target = "survival.probability",
+  seed = 2025
+)
+
+csf_90 <- causal_survival_forest(
+  X = X,
+  Y = Y,
+  D = D,
+  W = W,
+  horizon = 90,
+  num.trees = 1000,
+  target = "survival.probability",
+  seed = 2025
+)
+
+csf_120 <- causal_survival_forest(
+  X = X,
+  Y = Y,
+  D = D,
+  W = W,
+  horizon = 120,
+  num.trees = 1000,
+  target = "survival.probability",
+  seed = 2025
+)
+
+csf_150 <- causal_survival_forest(
+  X = X,
+  Y = Y,
+  D = D,
+  W = W,
+  horizon = 150,
+  num.trees = 1000,
+  target = "survival.probability",
+  seed = 2025
+)
+
+csf_180 <- causal_survival_forest(
+  X = X,
+  Y = Y,
+  D = D,
+  W = W,
+  horizon = 180,
+  num.trees = 1000,
+  target = "survival.probability",
+  seed = 2025
+)
+```
+
+# CATEs
+
+```{r}
+library(tibble)
+
+get_summary <- function(preds, horizon) {
+  s <- summary(preds)
+  tibble(
+    Horizon = horizon,
+    Min = s["Min."],
+    Q1 = s["1st Qu."],
+    Median = s["Median"],
+    Mean = s["Mean"],
+    Q3 = s["3rd Qu."],
+    Max = s["Max."]
+  )
+}
+
+cate_summary_table <- bind_rows(
+  get_summary(csf_preds30$predictions, 30),
+  get_summary(csf_preds60$predictions, 60),
+  get_summary(csf_preds90$predictions, 90),
+  get_summary(csf_preds120$predictions, 120),
+  get_summary(csf_preds150$predictions, 150),
+  get_summary(csf_preds180$predictions, 180)
+)
+
+cate_summary_table
+
+```
 
 
-# Creating the CSRF model
+```{r}
+# Histograms for each horizon
+# par(mfrow = c(3, 2))  # arrange 3 rows × 2 columns for 6 plots
+
+hist(cate_estimates30, breaks = 50,
+     main = "Estimated Treatment Effects (30-Day)",
+     xlab = "Effect of RHC on 30-Day Survival Probability",
+     col = "skyblue", border = "white")
+
+hist(cate_estimates60, breaks = 50,
+     main = "Estimated Treatment Effects (60-Day)",
+     xlab = "Effect of RHC on 60-Day Survival Probability",
+     col = "skyblue", border = "white")
+
+hist(cate_estimates90, breaks = 50,
+     main = "Estimated Treatment Effects (90-Day)",
+     xlab = "Effect of RHC on 90-Day Survival Probability",
+     col = "skyblue", border = "white")
+
+hist(cate_estimates120, breaks = 50,
+     main = "Estimated Treatment Effects (120-Day)",
+     xlab = "Effect of RHC on 120-Day Survival Probability",
+     col = "skyblue", border = "white")
+
+hist(cate_estimates150, breaks = 50,
+     main = "Estimated Treatment Effects (150-Day)",
+     xlab = "Effect of RHC on 150-Day Survival Probability",
+     col = "skyblue", border = "white")
+
+hist(cate_estimates180, breaks = 50,
+     main = "Estimated Treatment Effects (180-Day)",
+     xlab = "Effect of RHC on 180-Day Survival Probability",
+     col = "skyblue", border = "white")
+
+```
+
+
+
+# Creating the CSF model
 
 ```{r}
 model <- causal_survival_forest(
