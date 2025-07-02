@@ -507,6 +507,16 @@ print(c_index_rmst_table)
 ```
 
 
+```{r}
+
+#cate_estimates_sp
+#cate_estimates_rmst
+
+
+
+```
+
+
 
 ```{r}
 
@@ -590,14 +600,28 @@ ggplot(top10, aes(x = Variable, y = Importance)) +
 
 ```{r}
 
-best_linear_projection(model, X)
+best_linear_projection(csf_30_rmst, X)
 
 ```
 
+
+
+# TOC
+
 ```{r}
-tau.hat = predict(model)$predictions
+tau.hat = predict(csf_150_sb)$predictions
 # Form a doubly robust estimate of RATE using cs.forest
-rate = rank_average_treatment_effect(model, tau.hat)
+rate = rank_average_treatment_effect(csf_150_sb, tau.hat)
+# Plot the TOC, along with 95 % confidence bars
+plot(rate,
+main = "TOC: By decreasing CATE estimates"
+)
+```
+
+```{r}
+tau.hat = predict(csf_30_rmst)$predictions
+# Form a doubly robust estimate of RATE using cs.forest
+rate = rank_average_treatment_effect(csf_30_rmst, tau.hat)
 # Plot the TOC, along with 95 % confidence bars
 plot(rate,
 main = "TOC: By decreasing CATE estimates"
@@ -631,7 +655,7 @@ plot(rate_result)
 
 ```{r}
 # Get predicted treatment effects
-tau_hat <- predict(model)$predictions
+tau_hat <- predict(csf_30_rmst)$predictions
 
 # Split into quantile groups (e.g., quintiles)
 groups <- cut(tau_hat, breaks = quantile(tau_hat, probs = seq(0, 1, length.out = 6)),
