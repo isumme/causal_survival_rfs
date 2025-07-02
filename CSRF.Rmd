@@ -114,23 +114,21 @@ W <- W[cc_idx]
 # Checking for Truncation Time
 
 ```{r}
-
-hist(Y[D == 1], col = adjustcolor("grey"), main = "Event vs. Censored", xlab = "Time")
+hist(Y[D == 1], main = "Event vs. Censored", xlab = "", ylim = c(0, 100), xlim = c(0, 200))
 hist(Y[D == 0], col = adjustcolor("red", 0.5), add = TRUE)
-abline(v = h, lty = 2)
-legend("topleft", legend = c("Event", "Censored"), 
-       fill = c("gray", rgb(1, 0, 0, 0.5)), border = NA)
+legend("topright", c("Event", "Censored"),
+col = c("gray", adjustcolor("red", 0.5)),
+lwd = 4)
+abline(v = 720, lty = 2)
 
 ```
+
 
 # CSF Models - Survival Probability: 30 days, 60 days, 90 days, 120 days, 150 days, 180 days
 
 ```{r}
-failure_grid <- seq(0, max(Y), by = 5)  # every 5 days
-```
 
-
-```{r}
+# failure_grid <- seq(0, max(Y), by = 5)  # every 5 days
 
 csf_30_sb <- causal_survival_forest(
   X = X,
@@ -282,6 +280,7 @@ csf_180_rmst <- causal_survival_forest(
 )
 ```
 
+
 # CATEs
 
 ```{r}
@@ -322,11 +321,19 @@ cate_summary_rmst <- bind_rows(
 )
 
 # Combine for final table
-cate_summary_all <- bind_rows(cate_summary_sp, cate_summary_rmst)
+#cate_summary_all <- bind_rows(cate_summary_sp, cate_summary_rmst)
 
 # View table
-print(cate_summary_all)
+#print(cate_summary_all)
 
+```
+
+```{r}
+cate_summary_sp
+```
+
+```{r}
+cate_summary_rmst
 ```
 
 
@@ -502,6 +509,9 @@ print(c_index_rmst_table)
 
 
 ```{r}
+
+
+
 # Calculates quantiles of the CATE estimates
 quantile(cate_estimates, probs = c(0.01, 0.25, 0.5, 0.75, 0.99))
 
@@ -574,16 +584,6 @@ ggplot(top10, aes(x = Variable, y = Importance)) +
 
 # Bella's stuff that I do not understand lol
 
-```{r}
-
-hist(Y[D==1], main = "Histogram of Y", xlab = "")
-hist(Y[D == 0], col = adjustcolor("red", 0.5), add = TRUE)
-legend("topright", c("Event", "Censored"),
-col = c("gray", adjustcolor("red", 0.5)),
-lwd = 4)
-abline(v = 720, lty = 2)
-
-```
 
 # dementhx, sex1, incomeUnder..11k
 # t3d30, wtkilo1, neuro, seps, income.11..25k, income.25..50k
