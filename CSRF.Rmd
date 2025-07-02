@@ -330,42 +330,6 @@ print(cate_summary_all)
 ```
 
 
-
-```{r}
-# Histograms for each horizon
-# par(mfrow = c(3, 2))  # arrange 3 rows × 2 columns for 6 plots
-
-hist(cate_estimates30, breaks = 50,
-     main = "Estimated Treatment Effects (30-Day)",
-     xlab = "Effect of RHC on 30-Day Survival Probability",
-     col = "skyblue", border = "white")
-
-hist(cate_estimates60, breaks = 50,
-     main = "Estimated Treatment Effects (60-Day)",
-     xlab = "Effect of RHC on 60-Day Survival Probability",
-     col = "skyblue", border = "white")
-
-hist(cate_estimates90, breaks = 50,
-     main = "Estimated Treatment Effects (90-Day)",
-     xlab = "Effect of RHC on 90-Day Survival Probability",
-     col = "skyblue", border = "white")
-
-hist(cate_estimates120, breaks = 50,
-     main = "Estimated Treatment Effects (120-Day)",
-     xlab = "Effect of RHC on 120-Day Survival Probability",
-     col = "skyblue", border = "white")
-
-hist(cate_estimates150, breaks = 50,
-     main = "Estimated Treatment Effects (150-Day)",
-     xlab = "Effect of RHC on 150-Day Survival Probability",
-     col = "skyblue", border = "white")
-
-hist(cate_estimates180, breaks = 50,
-     main = "Estimated Treatment Effects (180-Day)",
-     xlab = "Effect of RHC on 180-Day Survival Probability",
-     col = "skyblue", border = "white")
-
-```
 ```{r}
 # Predict all CATEs
 cate_estimates_sp <- list(
@@ -415,19 +379,6 @@ for (h in names(cate_estimates_rmst)) {
 }
 ```
 
-# Creating the CSF model
-
-```{r}
-model <- causal_survival_forest(
-  X = X,
-  Y = Y,
-  D = D,
-  W = W,
-  horizon = 30,
-  num.trees = 5000,
-  seed = 2025
-)
-```
 
 
 # Cross-Validation for Survival Probability Model
@@ -548,106 +499,7 @@ c_index_rmst_table <- tibble(
 print(c_index_rmst_table)
 ```
 
-# CV
 
-```{r}
-library(survival)
-library(tibble)
-
-set.seed(2025)
-
-# Create 5 random folds
-folds <- sample(1:5, size = length(Y), replace = TRUE)
-
-# Define horizons and targets
-horizons <- c(30, 60, 90, 120, 150, 180)
-targets <- c("survival.probability", "RMST")
-
-# Initialize results tibble with correct column names
-results <- tibble(
-  Target = character(),
-  Horizon = integer(),
-  Mean_C_Index = numeric()
-)
-
-for (target in targets) {
-  for (h in horizons) {
-    c_indices <- numeric(5)
-
-    for (i in 1:5) {
-      train_idx <- which(folds != i)
-      test_idx  <- which(folds == i)
-
-      # Fit model
-      model_cv <- causal_survival_forest(
-        X = X[train_idx, ],
-        Y = Y[train_idx],
-        D = D[train_idx],
-        W = W[train_idx],
-        horizon = h,
-        target = target,
-        num.trees = 1000,
-        seed = 2025
-      )
-
-      # Predict on test set
-      preds <- predict(model_cv, newdata = X[test_idx, ], failure.time = h)
-
-      # Convert to risk scores
-      risk_scores <- if (target == "survival.probability") {
-        1 - preds$predictions
-      } else {
-        -preds$predictions
-      }
-
-      # C-index
-      surv_obj <- Surv(Y[test_idx], D[test_idx])
-      concordance_result <- concordance(surv_obj ~ risk_scores)
-      c_indices[i] <- concordance_result$concordance
-    }
-
-    # Add result row
-    results <- add_row(
-      results,
-      Target = target,
-      Horizon = h,
-      Mean_C_Index = round(mean(c_indices), 4)
-    )
-  }
-}
-
-# View final results
-print(results)
-
-
-```
-
-
-C-index = 0.6 means this model correctly ranks survival in 60% of patient pairs.
-
-
-
-
-# CATEs (Individual-level treatment effect estimates) for each observation in the dataset
-
-```{r}
-# Get the estimated effect of RHC on 30-day survival for each individual
-csf_preds <- predict(model)
-cate_estimates <- csf_preds$predictions
-summary(csf_preds$predictions)
-```
-For some individuals, RHC is estimated to reduce survival time by ~9 days. 25% of patients have an estimated treatment effect worse than -3 days (RHC harms them). For the median patient, RHC reduces 30-day survival by ~1.7 days. On average, RHC reduces 30-day survival by ~1.9 days. 75% of patients have treatment effects worse than -0.56 days. A small subset of patients actually benefit, gaining ~4 days from RHC.
-
-# Distribution of effects
-
-```{r}
-# Distribution of effects
-hist(cate_estimates, breaks = 50,
-     main = "Estimated Treatment Effects 'CATEs'",
-     xlab = "Effect of RHC on 30-Day Survival Probability")
-```
-
-The estimates suggest that RHC is harmful on average for 30-day survival, with most patients experiencing a decrease in survival ranging from ~1 to ~6 days. However, a minority of patients show positive treatment effects, suggesting treatment effect heterogeneity since some patients may benefit from RHC, depending on their characteristics.
 
 ```{r}
 # Calculates quantiles of the CATE estimates
