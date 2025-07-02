@@ -67,8 +67,6 @@ model <- causal_survival_forest(
 # Evaluating model performance with a 5-Fold cross-validation for C-index
 
 ```{r}
-library(grf)
-library(survival)
 
 set.seed(2025)
 
@@ -88,6 +86,7 @@ for (i in 1:5) {
     D = D[train_idx],
     W = W[train_idx],
     horizon = 30,
+    target = "RMST",
     num.trees = 5000,
     seed = 2025
   )
@@ -173,6 +172,11 @@ ate <- mean(csf_preds$predictions)
 ate
 ```
 
+```{r}
+average_treatment_effect(model)
+```
+
+
 # Identifying variables that drive the heterogeneity in how RHC affects survival (aka most contribute to variation in CATEs)
 
 ```{r}
@@ -199,7 +203,7 @@ top10$Variable <- factor(top10$Variable, levels = rev(top10$Variable))
 ggplot(top10, aes(x = Variable, y = Importance)) +
   geom_bar(stat = "identity", fill = "steelblue") +
   coord_flip() +
-  labs(title = "Top 10 Important Variables",
+  labs(title = "Top 10 Variables",
        x = "Variable",
        y = "Importance") +
   theme(
@@ -211,6 +215,45 @@ ggplot(top10, aes(x = Variable, y = Importance)) +
 
 
 # Bella's stuff that I do not understand lol
+
+```{r}
+
+hist(Y[D==1], main = "Histogram of Y", xlab = "")
+hist(Y[D == 0], col = adjustcolor("red", 0.5), add = TRUE)
+legend("topright", c("Event", "Censored"),
+col = c("gray", adjustcolor("red", 0.5)),
+lwd = 4)
+abline(v = 720, lty = 2)
+
+```
+
+```{r}
+
+best_linear_projection(model, X)
+
+```
+
+```{r}
+tau.hat = predict(model)$predictions
+# Form a doubly robust estimate of RATE using cs.forest
+rate = rank_average_treatment_effect(model, tau.hat)
+# Plot the TOC, along with 95 % confidence bars
+plot(rate,
+main = "TOC: By decreasing CATE estimates"
+)
+```
+```{r}
+paste("AUTOC:", round(rate$estimate, 2), "+/-", round(1.96 * rate$std.err, 2))
+```
+
+```{r}
+q80 = quantile(tau.hat, 0.8)
+rbind(
+full.sample = apply(X, 2, mean),
+top.20 = apply(X[tau.hat >= q80, ], 2, mean)
+)
+```
+
 
 ```{r}
 # Get predicted treatment effects (tau-hat) for each individual
@@ -242,7 +285,7 @@ sgate_df |>
   summarise(mean_tau = mean(tau_hat)) |> 
   ggplot(aes(x = factor(group), y = mean_tau)) +
   geom_col(fill = "steelblue") +
-  labs(title = "Manual S-GATE (Quintiles)", x = "Quantile Group", y = "Average Treatment Effect") +
+  labs(title = "S-GATE (Quintiles)", x = "Quantile Group", y = "Average Treatment Effect") +
   theme_minimal()
 ```
 
