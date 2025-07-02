@@ -12,22 +12,26 @@ knitr::opts_chunk$set(echo = TRUE)
 # Loading in libraries
 
 ```{r}
-# Libraries
 library(grf)
 library(ggplot2)
 library(survival)
 library(survcomp)
 library(pec)
+library(tibble)
+library(dplyr)
 ```
 
 # Importing data, cleaning, and setting new vars
 
 ```{r}
+
+# OLD IMPORTING + CLEANING (LEO's DATASET)
+
 # Import data
 data <- read.csv("rhc_imputed.csv")
 
 # Keep only rows with complete outcome information
-data_clean <- data[!is.na(data$SurvivalTime) & !is.na(data$censor), ]
+data_clean <- data[!is.na(data$SurvivalTime) & !is.na(data$death), ]
 
 # Define treatment and survival outcome
 W <- as.numeric(data_clean$swang1)
@@ -36,7 +40,7 @@ D <- data_clean$death
 
 # Define covariates
 exclude <- c("ptid", "swang1", "dthdte", "dschdte", "lstctdte", "sadmdte",
-             "survtime", "death", "survtime_new", "death_new", "censor")
+             "survtime", "death", "SurvivalTime", "censor")
 X_temp <- data_clean[, !(names(data_clean) %in% exclude)]
 
 # Factor key categorical variables
@@ -50,12 +54,68 @@ X_temp$ca <- as.factor(X_temp$ca)
 X <- model.matrix(~ . - 1, data = X_temp)
 ```
 
+```{r}
+
+# Import data
+data <- read.csv("rhc_imputed.csv")
+#data <- read.csv("new_data.csv")
+
+
+# Adjusting variables
+
+# Recalculate survival time
+
+data$survtime_new <- ifelse(!is.na(data$dthdte),  # Check if they have a date of death
+                            data$dthdte - data$sadmdte, # If true (they died), get time from admission to death
+                            data$lstctdte - data$sadmdte) # If false (didn't), get time from admission to the last known contact date
+
+# Recalculate event indicator -- if true/dead, assign 1 and if false/censored, assign 0
+
+data$death_new <- ifelse(!is.na(data$dthdte), 1, 0)  # Check if they have a non-missing date of death
+
+# Clean data so no NAs
+data_clean <- data[!is.na(data$survtime_new) & !is.na(data$death_new), ]
+
+# Treatment indicator W (RHC 1 or no RHC 0)
+W <- as.numeric(data_clean$swang1)
+
+# Event time Y (survival time) and event type D (death)
+Y <- data_clean$survtime_new
+D <- data_clean$death_new
+
+# Non-covariates
+
+exclude <- c("ptid", "swang1", "dthdte", "dschdte", "lstctdte", "sadmdte",
+              "survtime", "death", "survtime_new", "death_new")
+
+# Create covariate subset
+
+X_temp <- data_clean[, !(names(data_clean) %in% exclude)]
+
+# Make sure important covariates are factored
+
+X_temp$sex <- as.factor(X_temp$sex)
+X_temp$race <- as.factor(X_temp$race)
+X_temp$income <- as.factor(X_temp$income)
+X_temp$cat1 <- as.factor(X_temp$cat1)
+X_temp$ca <- as.factor(X_temp$ca)
+
+# Convert all variables to dummy variables for the model
+cc_idx <- complete.cases(X_temp)
+X <- model.matrix(~ . - 1, data = X_temp[cc_idx, ])
+Y <- Y[cc_idx]
+D <- D[cc_idx]
+W <- W[cc_idx]
+
+```
+
+
 
 # Checking for Truncation Time
 
 ```{r}
 
-hist(Y[D == 1], col = adjustcolor("grey"), main = "Event vs. Censored", xlab = "Time", xlim = c(0, 200))
+hist(Y[D == 1], col = adjustcolor("grey"), main = "Event vs. Censored", xlab = "Time")
 hist(Y[D == 0], col = adjustcolor("red", 0.5), add = TRUE)
 abline(v = h, lty = 2)
 legend("topleft", legend = c("Event", "Censored"), 
@@ -66,6 +126,12 @@ legend("topleft", legend = c("Event", "Censored"),
 # CSF Models - Survival Probability: 30 days, 60 days, 90 days, 120 days, 150 days, 180 days
 
 ```{r}
+failure_grid <- seq(0, max(Y), by = 5)  # every 5 days
+```
+
+
+```{r}
+
 csf_30_sb <- causal_survival_forest(
   X = X,
   Y = Y,
@@ -74,6 +140,7 @@ csf_30_sb <- causal_survival_forest(
   horizon = 30,
   num.trees = 1000,
   target = "survival.probability",
+  #failure.times = failure_grid,
   seed = 2025
 )
 
@@ -85,6 +152,7 @@ csf_60_sb <- causal_survival_forest(
   horizon = 60,
   num.trees = 1000,
   target = "survival.probability",
+  #failure.times = failure_grid,
   seed = 2025
 )
 
@@ -96,6 +164,7 @@ csf_90_sb <- causal_survival_forest(
   horizon = 90,
   num.trees = 1000,
   target = "survival.probability",
+  #failure.times = failure_grid,
   seed = 2025
 )
 
@@ -107,6 +176,7 @@ csf_120_sb <- causal_survival_forest(
   horizon = 120,
   num.trees = 1000,
   target = "survival.probability",
+  #failure.times = failure_grid,
   seed = 2025
 )
 
@@ -118,6 +188,7 @@ csf_150_sb <- causal_survival_forest(
   horizon = 150,
   num.trees = 1000,
   target = "survival.probability",
+  #failure.times = failure_grid,
   seed = 2025
 )
 
@@ -129,6 +200,7 @@ csf_180_sb <- causal_survival_forest(
   horizon = 180,
   num.trees = 1000,
   target = "survival.probability",
+  #failure.times = failure_grid,
   seed = 2025
 )
 ```
@@ -145,6 +217,7 @@ csf_30_rmst <- causal_survival_forest(
   horizon = 30,
   num.trees = 1000,
   target = "RMST",
+  #failure.times = failure_grid,
   seed = 2025
 )
 
@@ -156,6 +229,7 @@ csf_60_rmst <- causal_survival_forest(
   horizon = 60,
   num.trees = 1000,
   target = "RMST",
+  #failure.times = failure_grid,
   seed = 2025
 )
 
@@ -167,6 +241,7 @@ csf_90_rmst <- causal_survival_forest(
   horizon = 90,
   num.trees = 1000,
   target = "RMST",
+  #failure.times = failure_grid,
   seed = 2025
 )
 
@@ -178,6 +253,7 @@ csf_120_rmst <- causal_survival_forest(
   horizon = 120,
   num.trees = 1000,
   target = "RMST",
+  #failure.times = failure_grid,
   seed = 2025
 )
 
@@ -189,6 +265,7 @@ csf_150_rmst <- causal_survival_forest(
   horizon = 150,
   num.trees = 1000,
   target = "RMST",
+  #failure.times = failure_grid,
   seed = 2025
 )
 
@@ -200,6 +277,7 @@ csf_180_rmst <- causal_survival_forest(
   horizon = 180,
   num.trees = 1000,
   target = "RMST",
+  #failure.times = failure_grid,
   seed = 2025
 )
 ```
@@ -207,8 +285,6 @@ csf_180_rmst <- causal_survival_forest(
 # CATEs
 
 ```{r}
-library(tibble)
-library(dplyr)
 
 # Helper function to extract summary stats from a prediction vector
 get_summary <- function(preds, horizon, target_type) {
@@ -356,7 +432,6 @@ model <- causal_survival_forest(
 
 # Cross-Validation for Survival Probability Model
 ```{r}
-library(survival)
 
 set.seed(2025)
 folds <- sample(1:5, size = length(Y), replace = TRUE)
@@ -473,68 +548,80 @@ c_index_rmst_table <- tibble(
 print(c_index_rmst_table)
 ```
 
-
-
-# PCA and Clustering
-
-
-
-
-# Evaluating model performance with a 5-Fold cross-validation for C-index
+# CV
 
 ```{r}
+library(survival)
+library(tibble)
 
 set.seed(2025)
 
 # Create 5 random folds
 folds <- sample(1:5, size = length(Y), replace = TRUE)
-c_indices <- numeric(5)
 
-for (i in 1:5) {
-  # Split into training and testing indices
-  train_idx <- which(folds != i)
-  test_idx  <- which(folds == i)
+# Define horizons and targets
+horizons <- c(30, 60, 90, 120, 150, 180)
+targets <- c("survival.probability", "RMST")
 
-  # Fit Causal Survival Forest on training data
-  model_cv <- causal_survival_forest(
-    X = X[train_idx, ],
-    Y = Y[train_idx],
-    D = D[train_idx],
-    W = W[train_idx],
-    horizon = 30,
-    target = "survival.probability",
-    num.trees = 1000,
-    seed = 2025
-  )
+# Initialize results tibble with correct column names
+results <- tibble(
+  Target = character(),
+  Horizon = integer(),
+  Mean_C_Index = numeric()
+)
 
-  # Predict survival probabilities for test set at 180 days
-  preds <- predict(model_cv, newdata = X[test_idx, ], failure.time = 30)
+for (target in targets) {
+  for (h in horizons) {
+    c_indices <- numeric(5)
 
-  # Convert to risk scores = probability of death = 1 - survival probability
-  risk_scores <- 1 - preds$predictions
+    for (i in 1:5) {
+      train_idx <- which(folds != i)
+      test_idx  <- which(folds == i)
 
-  # Create survival object for test set
-  surv_obj <- Surv(Y[test_idx], D[test_idx])
+      # Fit model
+      model_cv <- causal_survival_forest(
+        X = X[train_idx, ],
+        Y = Y[train_idx],
+        D = D[train_idx],
+        W = W[train_idx],
+        horizon = h,
+        target = target,
+        num.trees = 1000,
+        seed = 2025
+      )
 
-  # Compute concordance index (C-index)
-  concordance_result <- concordance(surv_obj ~ risk_scores)
-  c_indices[i] <- concordance_result$concordance
+      # Predict on test set
+      preds <- predict(model_cv, newdata = X[test_idx, ], failure.time = h)
+
+      # Convert to risk scores
+      risk_scores <- if (target == "survival.probability") {
+        1 - preds$predictions
+      } else {
+        -preds$predictions
+      }
+
+      # C-index
+      surv_obj <- Surv(Y[test_idx], D[test_idx])
+      concordance_result <- concordance(surv_obj ~ risk_scores)
+      c_indices[i] <- concordance_result$concordance
+    }
+
+    # Add result row
+    results <- add_row(
+      results,
+      Target = target,
+      Horizon = h,
+      Mean_C_Index = round(mean(c_indices), 4)
+    )
+  }
 }
 
-# Average C-index across 5 folds
-mean_c_index <- mean(c_indices)
-mean_c_index
+# View final results
+print(results)
 
 
-# Old c-index calculation without cross-validation
-#c_index <- concordance.index(
-#  x = cate_estimates,˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛˛
-#  surv.time = Y,
-#  surv.event = D,
-#  method = "noether"
-#)
-#print(c_index$c.index)
 ```
+
 
 C-index = 0.6 means this model correctly ranks survival in 60% of patient pairs.
 
