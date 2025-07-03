@@ -21,6 +21,7 @@ library(tibble)
 library(dplyr)
 ```
 
+
 # Importing data, cleaning, and setting new vars
 
 ```{r}
@@ -56,62 +57,62 @@ X <- model.matrix(~ . - 1, data = X_temp)
 
 ```{r}
 
-# Import data
-data <- read.csv("rhc_imputed.csv")
-#data <- read.csv("new_data.csv")
-
-
-# Adjusting variables
-
-# Recalculate survival time
-
-data$survtime_new <- ifelse(!is.na(data$dthdte),  # Check if they have a date of death
-                            data$dthdte - data$sadmdte, # If true (they died), get time from admission to death
-                            data$lstctdte - data$sadmdte) # If false (didn't), get time from admission to the last known contact date
-
-# Recalculate event indicator -- if true/dead, assign 1 and if false/censored, assign 0
-
-data$death_new <- ifelse(!is.na(data$dthdte), 1, 0)  # Check if they have a non-missing date of death
-
-# Clean data so no NAs
-data_clean <- data[!is.na(data$survtime_new) & !is.na(data$death_new), ]
-
-# Treatment indicator W (RHC 1 or no RHC 0)
-W <- as.numeric(data_clean$swang1)
-
-# Event time Y (survival time) and event type D (death)
-Y <- data_clean$survtime_new
-D <- data_clean$death_new
-
-# Non-covariates
-
-exclude <- c("ptid", "swang1", "dthdte", "dschdte", "lstctdte", "sadmdte",
-              "survtime", "death", "survtime_new", "death_new")
-
-# Create covariate subset
-
-X_temp <- data_clean[, !(names(data_clean) %in% exclude)]
-
-# Make sure important covariates are factored
-
-X_temp$sex <- as.factor(X_temp$sex)
-X_temp$race <- as.factor(X_temp$race)
-X_temp$income <- as.factor(X_temp$income)
-X_temp$cat1 <- as.factor(X_temp$cat1)
-X_temp$ca <- as.factor(X_temp$ca)
-
-# Convert all variables to dummy variables for the model
-cc_idx <- complete.cases(X_temp)
-X <- model.matrix(~ . - 1, data = X_temp[cc_idx, ])
-Y <- Y[cc_idx]
-D <- D[cc_idx]
-W <- W[cc_idx]
+# # Import data
+# data <- read.csv("rhc_imputed.csv")
+# #data <- read.csv("new_data.csv")
+# 
+# 
+# # Adjusting variables
+# 
+# # Recalculate survival time
+# 
+# data$survtime_new <- ifelse(!is.na(data$dthdte),  # Check if they have a date of death
+#                             data$dthdte - data$sadmdte, # If true (they died), get time from admission to death
+#                             data$lstctdte - data$sadmdte) # If false (didn't), get time from admission to the last known contact date
+# 
+# # Recalculate event indicator -- if true/dead, assign 1 and if false/censored, assign 0
+# 
+# data$death_new <- ifelse(!is.na(data$dthdte), 1, 0)  # Check if they have a non-missing date of death
+# 
+# # Clean data so no NAs
+# data_clean <- data[!is.na(data$survtime_new) & !is.na(data$death_new), ]
+# 
+# # Treatment indicator W (RHC 1 or no RHC 0)
+# W <- as.numeric(data_clean$swang1)
+# 
+# # Event time Y (survival time) and event type D (death)
+# Y <- data_clean$survtime_new
+# D <- data_clean$death_new
+# 
+# # Non-covariates
+# 
+# exclude <- c("ptid", "swang1", "dthdte", "dschdte", "lstctdte", "sadmdte",
+#               "survtime", "death", "survtime_new", "death_new")
+# 
+# # Create covariate subset
+# 
+# X_temp <- data_clean[, !(names(data_clean) %in% exclude)]
+# 
+# # Make sure important covariates are factored
+# 
+# X_temp$sex <- as.factor(X_temp$sex)
+# X_temp$race <- as.factor(X_temp$race)
+# X_temp$income <- as.factor(X_temp$income)
+# X_temp$cat1 <- as.factor(X_temp$cat1)
+# X_temp$ca <- as.factor(X_temp$ca)
+# 
+# # Convert all variables to dummy variables for the model
+# cc_idx <- complete.cases(X_temp)
+# X <- model.matrix(~ . - 1, data = X_temp[cc_idx, ])
+# Y <- Y[cc_idx]
+# D <- D[cc_idx]
+# W <- W[cc_idx]
 
 ```
 
 
 
-# Checking for Truncation Time
+# Checking for Ideal Truncation Time
 
 ```{r}
 hist(Y[D == 1], main = "Event vs. Censored", xlab = "", ylim = c(0, 100), xlim = c(0, 200))
@@ -120,8 +121,8 @@ legend("topright", c("Event", "Censored"),
 col = c("gray", adjustcolor("red", 0.5)),
 lwd = 4)
 abline(v = 720, lty = 2)
-
 ```
+
 
 
 # CSF Models - Survival Probability: 30 days, 60 days, 90 days, 120 days, 150 days, 180 days
@@ -281,6 +282,7 @@ csf_180_rmst <- causal_survival_forest(
 ```
 
 
+
 # CATEs
 
 ```{r}
@@ -300,7 +302,7 @@ get_summary <- function(preds, horizon, target_type) {
   )
 }
 
-# Predict and summarize CATEs for survival probability
+# Survival probability
 cate_summary_sp <- bind_rows(
   get_summary(predict(csf_30_sb)$predictions, 30, "Survival Probability"),
   get_summary(predict(csf_60_sb)$predictions, 60, "Survival Probability"),
@@ -310,7 +312,7 @@ cate_summary_sp <- bind_rows(
   get_summary(predict(csf_180_sb)$predictions, 180, "Survival Probability")
 )
 
-# Predict and summarize CATEs for RMST
+# RMST
 cate_summary_rmst <- bind_rows(
   get_summary(predict(csf_30_rmst)$predictions, 30, "RMST"),
   get_summary(predict(csf_60_rmst)$predictions, 60, "RMST"),
@@ -375,9 +377,10 @@ for (h in names(cate_estimates_sp)) {
 ```
 
 ```{r}
+# Plot histograms for RMST
+
 par(mfrow = c(3, 2))
 
-# RMST
 for (h in names(cate_estimates_rmst)) {
   hist(cate_estimates_rmst[[h]], breaks = 50,
        main = paste("CATEs: RMST (", h, "-Day)", sep = ""),
@@ -388,7 +391,7 @@ for (h in names(cate_estimates_rmst)) {
 
 
 
-# Cross-Validation for Survival Probability Model
+# Cross-Validation for Survival Probability Models
 ```{r}
 
 set.seed(2025)
@@ -443,7 +446,7 @@ print(c_index_sp_table)
 ```
 
 
-# Cross-Validation for RMST
+# Cross-Validation for RMST Models
 ```{r}
 set.seed(2025)
 folds <- sample(1:5, size = length(Y), replace = TRUE)
@@ -507,20 +510,15 @@ print(c_index_rmst_table)
 ```
 
 
-```{r}
-
-#cate_estimates_sp
-#cate_estimates_rmst
 
 
-
-```
 
 
 
 ```{r}
 
-
+# cate_estimates_rmst
+# cate_estimates_sb
 
 # Calculates quantiles of the CATE estimates
 quantile(cate_estimates, probs = c(0.01, 0.25, 0.5, 0.75, 0.99))
@@ -542,24 +540,14 @@ table(data_clean$Effect_Group)
 ```
 The model predicts that most patients (about 83%) are harmed by RHC in terms of 30-day survival. A small subset (about 13%) may benefit, and only around 2% appear unaffected. This supports the presence of treatment effect heterogeneity + justifies us investigating which subgroups these benefitted individuals belong to.
 
-# ATE (for reference)
 
-```{r}
-# Average Treatment Effect
-ate <- mean(csf_preds$predictions)
-ate
-```
-
-```{r}
-average_treatment_effect(model)
-```
 
 
 # Identifying variables that drive the heterogeneity in how RHC affects survival (aka most contribute to variation in CATEs)
 
 ```{r}
 # Key Drivers of HTE
-vi <- variable_importance(model)
+vi <- variable_importance(csf_60_sb)
 top_vars <- data.frame(
   Variable = colnames(X),
   Importance = vi
